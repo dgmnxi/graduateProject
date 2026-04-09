@@ -1,0 +1,19 @@
+FastAPI==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+numpy==1.24.3
+python-multipart==0.0.6
+
+# ML/AI 필요 라이브러리
+torch==2.1.0  # PyTorch 모델용
+transformers==4.35.0  # HuggingFace 모델 (Marqo-FashionCLIP 포함)
+Pillow==10.0.0  # 이미지 처리
+
+# Marqo
+marqo==2.12.0
+
+# 개발 도구
+pytest==7.4.3
+black==23.12.0
+flake8==6.1.0

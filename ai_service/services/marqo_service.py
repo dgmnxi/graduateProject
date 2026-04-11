@@ -1,44 +1,62 @@
 """
 Stage 4: Marqo-FashionSigLip을 활용한 의류 추천
+HuggingFace 모델을 직접 로드하여 텍스트 임베딩 검색
 """
 from typing import Dict, List, Optional, Any
 import logging
+import torch
+from PIL import Image
+from transformers import AutoModel, AutoProcessor
 
 logger = logging.getLogger(__name__)
 
 
 class MarqoRecommender:
     """
-    프롬프트 기반 의류 추천을 위해 Marqo 클라이언트 래핑
+    프롬프트 기반 의류 추천을 위해 Marqo-FashionSigLIP 모델을 로컬에서 직접 사용
     """
     
-    def __init__(self, marqo_url: str = "http://localhost:8000"):
-        """
-        Args:
-            marqo_url: Marqo 서버 URL
-        """
-        self.marqo_url = marqo_url
-        self.client = None
-        self.index_name = "fashion_sigclip"
+    def __init__(self):
+        """HuggingFace 모델 초기화"""
+        self.model = None
+        self.processor = None
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.model_name = "Marqo/marqo-fashionSigLIP"
         
-        self._initialize_client()
+        self._initialize_model()
     
-    def _initialize_client(self):
-        """Marqo 클라이언트 초기화"""
+    def _initialize_model(self):
+        """Marqo-FashionSigLIP 모델 로드"""
         try:
-            # import marqo  # 필요시 설치 필요
+            logger.info(f"Loading Marqo-FashionSigLIP model...")
             
-            # TODO: 실제 Marqo 클라이언트 초기화
-            # self.client = marqo.Client(url=self.marqo_url)
-            
-            logger.info(f"Marqo client initialized at {self.marqo_url}")
-            
-        except ImportError:
-            logger.warning(
-                "Marqo not installed. "
-                "Install with: pip install marqo"
+            # HuggingFace에서 모델과 프로세서 로드
+            self.model = AutoModel.from_pretrained(
+                self.model_name, 
+                trust_remote_code=True
             )
-            self.client = None
+            self.processor = AutoProcessor.from_pretrained(
+                self.model_name, 
+                trust_remote_code=True
+            )
+            
+            # GPU 또는 CPU로 이동
+            self.model = self.model.to(self.device)
+            self.model.eval()
+            
+            logger.info(f"✓ Marqo-FashionSigLIP model loaded on {self.device}")
+            
+        except ImportError as e:
+            logger.error(
+                f"Failed to import required packages: {e}. "
+                "Install with: pip install transformers torch pillow"
+            )
+            self.model = None
+            self.processor = None
+        except Exception as e:
+            logger.error(f"Failed to initialize Marqo model: {e}")
+            self.model = None
+            self.processor = None
     
     def search_recommendations(
         self,
@@ -50,7 +68,7 @@ class MarqoRecommender:
         프롬프트 기반 의류 추천 검색
         
         Args:
-            prompt: 생성된 프롬프트
+            prompt: 생성된 프롬프트 (텍스트 설명)
             top_k: 반환할 추천 개수
             filter_tags: 필터링 태그 (선택사항)
             
@@ -58,32 +76,66 @@ class MarqoRecommender:
             추천 의류 리스트
         """
         
-        if self.client is None:
-            logger.warning("Marqo client is not initialized. Returning mock results.")
+        if self.model is None or self.processor is None:
+            logger.warning("Marqo model is not initialized. Returning mock results.")
             return self._mock_recommendations(prompt, top_k)
         
         try:
-            # TODO: 실제 Marqo 검색 로직
-            # results = self.client.index(self.index_name).search(
-            #     q=prompt,
-            #     searchable_attributes=['description', 'tags'],
-            #     limit=top_k
-            # )
+            # 프롬프트로부터 텍스트 임베딩 생성
+            prompt_embedding = self._get_text_embedding(prompt)
             
-            # 필터링 적용 (선택사항)
-            # if filter_tags:
-            #     results = self._apply_filters(results, filter_tags)
+            logger.info(f"Text embedding generated for prompt: {prompt[:50]}...")
             
-            logger.info(f"Marqo search completed for prompt: {prompt[:50]}...")
+            # TODO: 실제 데이터베이스에서 의류 상품 검색
+            # 현재는 mock 데이터 사용 (데이터베이스 구축 후 구현)
+            recommendations = self._mock_recommendations(prompt, top_k)
             
-            # 결과 포맷팅
-            # return self._format_results(results)
+            # 각 추천 아이템에 prompt_embedding 정보 추가 (나중에 활용 가능)
+            for rec in recommendations:
+                rec['embedding_info'] = {
+                    'prompt': prompt[:50],
+                    'embedding_generated': True
+                }
             
-            pass
+            return recommendations
             
         except Exception as e:
             logger.error(f"Marqo search error: {e}")
             return self._mock_recommendations(prompt, top_k)
+    
+    def _get_text_embedding(self, text: str) -> torch.Tensor:
+        """
+        텍스트로부터 임베딩 벡터 생성
+        
+        Args:
+            text: 입력 텍스트
+            
+        Returns:
+            정규화된 텍스트 임베딩 벡터
+        """
+        try:
+            # 프로세서를 통해 텍스트 토큰화
+            processed = self.processor(
+                text=[text],
+                padding='max_length',
+                return_tensors="pt"
+            )
+            
+            # 모델의 입력을 GPU/CPU로 이동
+            processed = {k: v.to(self.device) for k, v in processed.items()}
+            
+            # 모델로부터 텍스트 특징 추출
+            with torch.no_grad():
+                text_features = self.model.get_text_features(
+                    processed.get('input_ids'),
+                    normalize=True
+                )
+            
+            return text_features
+            
+        except Exception as e:
+            logger.error(f"Error generating text embedding: {e}")
+            raise
     
     def _apply_filters(
         self,
@@ -154,13 +206,16 @@ class MarqoRecommender:
         return mock_results
     
     def health_check(self) -> bool:
-        """Marqo 서버 상태 확인"""
+        """Marqo 모델 상태 확인"""
         try:
-            # TODO: 실제 헬스 체크 로직
-            # response = self.client.get_indexes()
-            # return bool(response)
+            if self.model is None or self.processor is None:
+                logger.warning("Marqo model is not initialized")
+                return False
             
-            logger.info(f"Health check: Marqo server at {self.marqo_url}")
+            # 간단한 테스트 임베딩으로 헬스 체크
+            test_embedding = self._get_text_embedding("test")
+            
+            logger.info(f"✓ Marqo health check passed. Embedding shape: {test_embedding.shape}")
             return True
             
         except Exception as e:
@@ -172,9 +227,9 @@ class MarqoRecommender:
 _recommender: Optional[MarqoRecommender] = None
 
 
-def get_recommender(marqo_url: str = "http://localhost:8000") -> MarqoRecommender:
+def get_recommender() -> MarqoRecommender:
     """추천기 인스턴스 가져오기 (싱글톤 패턴)"""
     global _recommender
     if _recommender is None:
-        _recommender = MarqoRecommender(marqo_url)
+        _recommender = MarqoRecommender()
     return _recommender

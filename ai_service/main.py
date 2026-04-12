@@ -69,11 +69,11 @@ async def startup_event():
         logger.error(f"✗ Profile generator initialization failed: {e}")
     
     try:
-        recommender = get_recommender(config.MARQO_URL)
+        recommender = get_recommender()
         if recommender.health_check():
             logger.info("✓ Marqo recommender initialized")
         else:
-            logger.warning("⚠ Marqo check failed - will use mock results")
+            logger.warning("⚠ Marqo initialization failed - will use mock results")
     except Exception as e:
         logger.error(f"✗ Marqo recommender initialization failed: {e}")
 
@@ -154,7 +154,7 @@ async def recommend_clothing(request: PoseInput):
         
         # ====== Stage 4: 프롬프트 → Marqo 검색 ======
         logger.info(f"Stage 4: Searching recommendations via Marqo...")
-        recommender = get_recommender(config.MARQO_URL)
+        recommender = get_recommender()
         recommendations = recommender.search_recommendations(
             prompt=generated_prompt,
             top_k=10,
@@ -238,7 +238,7 @@ async def debug_prompt_generation(request: PoseInput):
 async def debug_marqo_search(prompt: str, top_k: int = 10):
     """Stage 4 디버그: 프롬프트 → 검색"""
     try:
-        recommender = get_recommender(config.MARQO_URL)
+        recommender = get_recommender()
         results = recommender.search_recommendations(prompt, top_k)
         
         return {
@@ -260,7 +260,7 @@ async def get_info():
         'title': config.API_TITLE,
         'version': config.API_VERSION,
         'description': config.API_DESCRIPTION,
-        'marqo_url': config.MARQO_URL,
+        'marqo': 'local_instance',
         'debug': config.DEBUG
     }
 

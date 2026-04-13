@@ -1,0 +1,25 @@
+# Stage 1 baseline config (preprocessing first)
+# NOTE:
+# - Keep dataset path empty for now.
+# - Fill with a relative path in each local environment later.
+# - 3DPW dataset is local-only and should not be committed.
+
+dataset:
+  name: "3DPW"
+  source_url: "https://virtualhumans.mpi-inf.mpg.de/3DPW/"
+  root_dir: ""        # e.g. "../data/3dpw" (relative path only)
+  train_file: ""      # e.g. "train.pkl" (relative to root_dir)
+  val_file: ""        # e.g. "validation.pkl"
+  test_file: ""       # e.g. "test.pkl"
+
+preprocessing:
+  normalization: "zscore"   # zscore | minmax
+  center_on_pelvis: true
+  clip_zscore: 3.0
+  include_engineered_features: true
+
+features:
+  distances: true
+  angles: true
+  symmetry: true
+  body_ratios: true

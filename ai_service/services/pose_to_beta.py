@@ -5,6 +5,8 @@ import numpy as np
 from typing import List, Dict, Optional
 import logging
 
+from training.preprocessing import PreprocessConfig, preprocess_pose
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,6 +25,7 @@ class PoseToBetaConverter:
         """
         self.model_path = model_path
         self.model = None
+        self.preprocess_config = PreprocessConfig()
         
         if model_path:
             self._load_model(model_path)
@@ -33,28 +36,18 @@ class PoseToBetaConverter:
         # self.model = torch.load(model_path)
         logger.info(f"Model loaded from {model_path}")
     
-    def preprocess_joints(self, joints: List[float]) -> np.ndarray:
+    def preprocess_joints(self, joints: List[float]) -> Dict[str, object]:
         """
-        관절값 전처리
+        관절값 전처리 + 특징 엔지니어링
         
         Args:
             joints: MediaPipe 관절값 리스트
             
         Returns:
-            전처리된 관절값 배열
+            전처리 결과 딕셔너리
         """
-        joints_array = np.array(joints, dtype=np.float32)
-        
-        # 정규화 (예시)
-        # 실제 전처리 로직을 추가하세요
-        mean = np.mean(joints_array)
-        std = np.std(joints_array)
-        if std > 0:
-            joints_normalized = (joints_array - mean) / std
-        else:
-            joints_normalized = joints_array
-            
-        return joints_normalized
+        joints_array = np.asarray(joints, dtype=np.float32)
+        return preprocess_pose(joints_array, self.preprocess_config)
     
     def predict_beta(self, joints: List[float]) -> Dict:
         """
@@ -70,8 +63,9 @@ class PoseToBetaConverter:
                 'raw_output': 추가 정보
             }
         """
-        # 전처리
-        preprocessed_joints = self.preprocess_joints(joints)
+        # 전처리 및 특징 추출
+        preprocessing_result = self.preprocess_joints(joints)
+        model_input = preprocessing_result["model_input"]
         
         # TODO: 실제 모델 추론 로직
         # if self.model is not None:
@@ -89,8 +83,10 @@ class PoseToBetaConverter:
             'beta_values': beta_values,
             'confidence': confidence,
             'raw_output': {
-                'input_shape': preprocessed_joints.shape,
-                'preprocessed_joints': preprocessed_joints.tolist()
+                'input_shape': tuple(model_input.shape),
+                'preprocessed_joints': preprocessing_result['normalized_joints'].reshape(-1).tolist(),
+                'feature_vector_length': int(preprocessing_result['feature_vector'].shape[0]),
+                'metadata': preprocessing_result['metadata']
             }
         }
     

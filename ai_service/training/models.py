@@ -1,7 +1,8 @@
 """
-ResidualMLP과 GCN 모델 구현
+MLP, ResidualMLP, Transformer, GCN 모델 구현
 """
 
+import math
 import torch
 import torch.nn as nn
 import numpy as np
@@ -130,6 +131,144 @@ class ResidualBlock(nn.Module):
         out = self.relu(out)
         
         return out
+
+
+class MLPPoseToBeta(BasePoseToBetaModel):
+    """
+    단순 MLP 모델
+
+    구조:
+    - Linear → BatchNorm → ReLU → Dropout 반복
+    - 기본 구조: 99 → 256 → 128 → 64 → 10
+    """
+
+    def __init__(self, input_size: int = 99, output_size: int = 10,
+                 hidden_sizes: list = None, dropout_rates: list = None):
+        super().__init__(input_size, output_size)
+
+        if hidden_sizes is None:
+            hidden_sizes = [256, 128, 64]
+        if dropout_rates is None:
+            dropout_rates = [0.2, 0.2, 0.1]
+
+        self.hidden_sizes = hidden_sizes
+        self.dropout_rates = dropout_rates
+
+        layers = []
+        prev_size = input_size
+
+        for idx, hidden_size in enumerate(hidden_sizes):
+            dropout = dropout_rates[idx] if idx < len(dropout_rates) else 0.1
+            layers.extend([
+                nn.Linear(prev_size, hidden_size),
+                nn.BatchNorm1d(hidden_size),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout),
+            ])
+            prev_size = hidden_size
+
+        layers.append(nn.Linear(prev_size, output_size))
+        self.mlp = nn.Sequential(*layers)
+
+    def forward(self, x):
+        """
+        Args:
+            x: (batch_size, 99)
+
+        Returns:
+            (batch_size, 10)
+        """
+        return self.mlp(x)
+
+
+class PositionalEncoding(nn.Module):
+    """Transformer용 sinusoidal positional encoding"""
+
+    def __init__(self, embed_dim: int, max_len: int = 99):
+        super().__init__()
+
+        pe = torch.zeros(max_len, embed_dim)
+        position = torch.arange(0, max_len, dtype=torch.float32).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, embed_dim, 2, dtype=torch.float32)
+            * (-math.log(10000.0) / embed_dim)
+        )
+
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+
+        self.register_buffer("pe", pe.unsqueeze(0))  # (1, max_len, embed_dim)
+
+    def forward(self, x):
+        seq_len = x.size(1)
+        return x + self.pe[:, :seq_len, :]
+
+
+class TransformerPoseToBeta(BasePoseToBetaModel):
+    """
+    Transformer 기반 모델
+
+    구조:
+    - 입력 (batch, 99)을 99개 토큰으로 취급
+    - 토큰 임베딩 + Positional Encoding
+    - Transformer Encoder stack
+    - 전역 평균 풀링 후 Output MLP
+    """
+
+    def __init__(self, input_size: int = 99, output_size: int = 10,
+                 embed_dim: int = 128, num_heads: int = 8,
+                 num_layers: int = 4, feedforward_dim: int = 256,
+                 dropout: float = 0.1, activation: str = "gelu"):
+        super().__init__(input_size, output_size)
+
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.num_layers = num_layers
+        self.feedforward_dim = feedforward_dim
+
+        # (batch, 99) -> (batch, 99, 1) -> (batch, 99, embed_dim)
+        self.token_embedding = nn.Linear(1, embed_dim)
+        self.positional_encoding = PositionalEncoding(embed_dim, max_len=input_size)
+
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=embed_dim,
+            nhead=num_heads,
+            dim_feedforward=feedforward_dim,
+            dropout=dropout,
+            activation=activation,
+            batch_first=True,
+            norm_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+        # Output MLP: 128 -> 64 -> 32 -> 10
+        self.output_mlp = nn.Sequential(
+            nn.Linear(embed_dim, 64),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+            nn.Linear(64, 32),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+            nn.Linear(32, output_size),
+        )
+
+    def forward(self, x):
+        """
+        Args:
+            x: (batch_size, 99)
+
+        Returns:
+            (batch_size, 10)
+        """
+        # 각 좌표 스칼라를 하나의 토큰으로 사용
+        x = x.unsqueeze(-1)  # (batch_size, 99, 1)
+        x = self.token_embedding(x)  # (batch_size, 99, embed_dim)
+        x = self.positional_encoding(x)
+
+        x = self.encoder(x)  # (batch_size, 99, embed_dim)
+        x = x.mean(dim=1)  # 전역 평균 풀링: (batch_size, embed_dim)
+
+        return self.output_mlp(x)
 
 
 class GCNPoseToBeta(BasePoseToBetaModel):
@@ -319,8 +458,33 @@ if __name__ == "__main__":
     )
     
     x = torch.randn(batch_size, input_size)
+
+    # MLP 테스트
+    model_mlp = MLPPoseToBeta(
+        input_size=input_size,
+        output_size=10,
+        hidden_sizes=[256, 128, 64],
+        dropout_rates=[0.2, 0.2, 0.1]
+    )
+    y_mlp = model_mlp(x)
+    print(f"MLP output shape: {y_mlp.shape}")  # (32, 10)
+
     y_resmlp = model_resmlp(x)
     print(f"ResidualMLP output shape: {y_resmlp.shape}")  # (32, 10)
+
+    # Transformer 테스트
+    model_transformer = TransformerPoseToBeta(
+        input_size=input_size,
+        output_size=10,
+        embed_dim=128,
+        num_heads=8,
+        num_layers=4,
+        feedforward_dim=256,
+        dropout=0.1,
+        activation="gelu"
+    )
+    y_transformer = model_transformer(x)
+    print(f"Transformer output shape: {y_transformer.shape}")  # (32, 10)
     
     # GCN 테스트
     model_gcn = GCNPoseToBeta(
@@ -335,5 +499,7 @@ if __name__ == "__main__":
     print(f"GCN output shape: {y_gcn.shape}")  # (32, 10)
     
     # 파라미터 수 확인
-    print(f"\nResidualMLP parameters: {sum(p.numel() for p in model_resmlp.parameters()):,}")
+    print(f"\nMLP parameters: {sum(p.numel() for p in model_mlp.parameters()):,}")
+    print(f"ResidualMLP parameters: {sum(p.numel() for p in model_resmlp.parameters()):,}")
+    print(f"Transformer parameters: {sum(p.numel() for p in model_transformer.parameters()):,}")
     print(f"GCN parameters: {sum(p.numel() for p in model_gcn.parameters()):,}")

@@ -22,7 +22,6 @@ class Config:
     POSE_MODEL_PATH = os.getenv("POSE_MODEL_PATH", None)
     
     # Marqo 설정 (로컬 인스턴스 사용 - URL 불필요)
-    # MARQO_URL = os.getenv("MARQO_URL", "http://localhost:8000")
     MARQO_INDEX_NAME = os.getenv("MARQO_INDEX_NAME", "fashion_sigclip")
     
     # CORS 설정

@@ -444,6 +444,81 @@ class GraphConvLayer(nn.Module):
         return x
 
 
+def create_model(model_name: str, input_size: int = 99, output_size: int = 10,
+                 hidden_sizes: list = None, dropout_rates: list = None,
+                 embed_dim: int = 128, num_heads: int = 8, num_layers: int = 3,
+                 feedforward_dim: int = 256, feat_dim: int = 64,
+                 hidden_dim: int = 128, dropout: float = 0.1,
+                 num_blocks_per_layer: int = 1, **kwargs) -> BasePoseToBetaModel:
+    """
+    모델 생성 팩토리 함수
+    
+    Args:
+        model_name: 모델 이름 ('mlp', 'residualmlp', 'transformer', 'gcn')
+        input_size: 입력 크기 (기본값: 99)
+        output_size: 출력 크기 (기본값: 10)
+        hidden_sizes: MLP 숨은층 크기 리스트
+        dropout_rates: 각 레이어의 드롭아웃 비율
+        embed_dim: Transformer 임베딩 차원
+        num_heads: Transformer 어텐션 헤드 수
+        num_layers: Transformer/GCN 레이어 수
+        feedforward_dim: Transformer 피드포워드 차원
+        feat_dim: GCN 특징 차원
+        hidden_dim: GCN 숨은 차원
+        dropout: 드롭아웃 비율
+        num_blocks_per_layer: ResidualMLP 블록 수
+        **kwargs: 추가 인자 (무시됨)
+    
+    Returns:
+        모델 인스턴스
+    """
+    model_name = model_name.lower().strip()
+    
+    if model_name == 'mlp':
+        return MLPPoseToBeta(
+            input_size=input_size,
+            output_size=output_size,
+            hidden_sizes=hidden_sizes,
+            dropout_rates=dropout_rates
+        )
+    
+    elif model_name == 'residualmlp':
+        return ResidualMLPPoseToBeta(
+            input_size=input_size,
+            output_size=output_size,
+            hidden_sizes=hidden_sizes,
+            dropout_rates=dropout_rates,
+            num_blocks_per_layer=num_blocks_per_layer
+        )
+    
+    elif model_name == 'transformer':
+        return TransformerPoseToBeta(
+            input_size=input_size,
+            output_size=output_size,
+            embed_dim=embed_dim,
+            num_heads=num_heads,
+            num_layers=num_layers,
+            feedforward_dim=feedforward_dim,
+            dropout=dropout
+        )
+    
+    elif model_name == 'gcn':
+        return GCNPoseToBeta(
+            input_size=input_size,
+            output_size=output_size,
+            feat_dim=feat_dim,
+            hidden_dim=hidden_dim,
+            num_layers=num_layers,
+            dropout=dropout
+        )
+    
+    else:
+        raise ValueError(
+            f"Unknown model name: {model_name}. "
+            f"Available models: 'mlp', 'residualmlp', 'transformer', 'gcn'"
+        )
+
+
 if __name__ == "__main__":
     # 모델 테스트
     batch_size = 32

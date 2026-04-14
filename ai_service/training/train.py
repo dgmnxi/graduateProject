@@ -19,7 +19,7 @@ import argparse
 from typing import Tuple, Dict
 import time
 
-from training.models import ResidualMLPPoseToBeta, GCNPoseToBeta
+from training.models import create_model
 
 
 class Trainer:
@@ -268,21 +268,16 @@ def main():
     
     # 모델 생성
     print(f"\nCreating {args.model.upper()} model...")
-    if args.model == 'resmlp':
-        model = ResidualMLPPoseToBeta(
-            input_size=99,
-            output_size=10,
-            hidden_sizes=[256, 128, 64],
-            dropout_rates=[0.2, 0.2, 0.1]
-        )
-    elif args.model == 'gcn':
-        model = GCNPoseToBeta(
-            input_size=99,
-            output_size=10,
-            feat_dim=64,
-            hidden_dim=128,
-            num_layers=3
-        )
+    model = create_model(
+        args.model,
+        input_size=99,
+        output_size=10,
+        hidden_sizes=[256, 128, 64],
+        dropout_rates=[0.2, 0.2, 0.1],
+        feat_dim=64,
+        hidden_dim=128,
+        num_layers=3
+    )
     
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
     

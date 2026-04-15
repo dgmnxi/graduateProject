@@ -251,20 +251,42 @@ python ai_service/training/train.py --model resmlp --data_dir ./data/processed -
 
 ## 11. 리스크 및 대응
 
-- 리스크: all 모드에서 로그 파일이 섞일 수 있음
+- 완료
+  - 리스크: all 모드에서 로그 파일이 섞일 수 있음
   - 대응(적용 필수): 모델별 logger 이름 및 파일 핸들러를 분리하고, 모델 종료 시 핸들러를 반드시 정리
+  - train.py 반영 근거:
+    - `setup_logger(run_name, ...)`로 모델 실행 단위 logger를 분리.
+    - `run_name`에 모델명이 포함되어 로그 파일이 모델별로 분리됨.
+    - `train_and_evaluate_single_model`의 `finally`에서 핸들러 flush/close/remove 수행.
 
-- 리스크: 기존 결과 탐색 스크립트 경로 불일치
-  - 대응(적용 필수): 경로 변경 공지 + 기존 경로를 새 경로로 바꾸는 변환 스크립트 제공
-
-- 리스크: 날짜만 사용 시 같은 날 재실행 충돌 가능
+- 완료
+  - 리스크: 날짜만 사용 시 같은 날 재실행 충돌 가능
   - 대응(적용 필수): HHMMSS 접미사 옵션을 기본 활성화(auto)로 제공하고, 필요 시 none/custom 선택 허용
+  - train.py 반영 근거:
+    - `--run_suffix` 기본값이 `auto`이며 선택지가 `auto|none|custom`으로 제공됨.
+    - `build_run_name`에서 기본적으로 시각(YYYYMMDD_HHMMSS)을 포함한 run_name 생성.
 
-- 리스크: OOM 발생 시 중간 상태가 소실될 수 있음
-  - 대응(적용 필수): OOM 체크포인트/JSON 저장 후 안전 종료, `cleanup_cuda_memory()` 유지
+- 완료
+  - 리스크: OOM 발생 시 중간 상태가 소실될 수 있음
+  - 대응(적용 필수): OOM 체크포인트/JSON 저장 후 안전 종료, cleanup_cuda_memory() 유지
+  - train.py 반영 근거:
+    - `Trainer.train`에서 OOM 시 `*_oom_epoch{epoch}.pth` 저장 후 예외 재전파.
+    - `train_and_evaluate_single_model`에서 OOM 상태(`failed_oom`)와 에러 메시지를 결과 JSON에 기록.
+    - 모델 학습 단위 `finally`와 `main`의 `finally`에서 `cleanup_cuda_memory()` 호출 유지.
 
-- 리스크: 시각화 의존성을 학습 환경에 넣으면 재현성이 흔들릴 수 있음
+- 완료
+  - 리스크: 시각화 의존성을 학습 환경에 넣으면 재현성이 흔들릴 수 있음
   - 대응(적용 필수): 시각화는 Notebook용 문서만 제공하고 requirements에는 추가하지 않음
+  - train.py 반영 근거:
+    - train.py 내부에 시각화 라이브러리 import 및 시각화 실행 로직이 없음.
+    - 학습 코드가 시각화와 분리되어 동작함.
+
+- 미완료
+  - 리스크: 기존 결과 탐색 스크립트 경로 불일치
+  - 대응(적용 필수): 경로 변경 공지 + 기존 경로를 새 경로로 바꾸는 변환 스크립트 제공
+  - train.py 기준 판단 근거:
+    - 학습 출력 경로 정책은 반영되어 있으나, 경로 변경 공지 로직은 코드상 존재하지 않음.
+    - 기존 경로를 새 경로로 변환하는 별도 스크립트 제공은 train.py 내에서 확인되지 않음.
 
 ## 12. 적용 항목 문서화
 

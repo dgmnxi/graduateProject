@@ -316,15 +316,30 @@ class Trainer:
         mae = np.mean(np.abs(predictions - targets))
         rmse = np.sqrt(mse)
 
-        ss_res = np.sum((targets - predictions) ** 2)
-        ss_tot = np.sum((targets - np.mean(targets, axis=0)) ** 2)
-        r2 = 1 - (ss_res / ss_tot)
+        # Multi-output R2는 타깃 차원별로 계산 후 평균한다.
+        # 분산이 거의 0인 차원은 R2가 불안정해지므로 평균에서 제외한다.
+        ss_res_per_beta = np.sum((targets - predictions) ** 2, axis=0)
+        ss_tot_per_beta = np.sum((targets - np.mean(targets, axis=0)) ** 2, axis=0)
+        eps = 1e-8
+        valid_mask = ss_tot_per_beta > eps
+
+        per_beta_r2 = []
+        for i in range(targets.shape[1]):
+            if valid_mask[i]:
+                value = 1 - (ss_res_per_beta[i] / ss_tot_per_beta[i])
+                per_beta_r2.append(float(value))
+            else:
+                per_beta_r2.append(None)
+
+        valid_r2_values = [v for v in per_beta_r2 if v is not None]
+        r2 = float(np.mean(valid_r2_values)) if valid_r2_values else float('nan')
 
         metrics = {
             'mse': float(mse),
             'mae': float(mae),
             'rmse': float(rmse),
             'r2': float(r2),
+            'per_beta_r2': per_beta_r2,
             'per_beta_mae': [float(np.mean(np.abs(predictions[:, i] - targets[:, i]))) for i in range(targets.shape[1])]
         }
 
@@ -427,10 +442,19 @@ def train_and_evaluate_single_model(model_name: str, args, train_loader, val_loa
         logger.info(f"MSE: {metrics['mse']:.6f}")
         logger.info(f"MAE: {metrics['mae']:.6f}")
         logger.info(f"RMSE: {metrics['rmse']:.6f}")
-        logger.info(f"R²: {metrics['r2']:.6f}")
+        if np.isnan(metrics['r2']):
+            logger.info('R²: nan (all target dimensions have near-zero variance)')
+        else:
+            logger.info(f"R²: {metrics['r2']:.6f}")
         logger.info('Per-Beta MAE:')
         for i, mae_val in enumerate(metrics['per_beta_mae']):
             logger.info(f'  Beta[{i}]: {mae_val:.6f}')
+        logger.info('Per-Beta R²:')
+        for i, r2_val in enumerate(metrics['per_beta_r2']):
+            if r2_val is None:
+                logger.info(f'  Beta[{i}]: n/a (near-zero variance)')
+            else:
+                logger.info(f'  Beta[{i}]: {r2_val:.6f}')
     except TrainingOOMError as error:
         status = 'failed_oom'
         oom_error = str(error)

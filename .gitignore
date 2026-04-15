@@ -1,6 +1,6 @@
 .vscode
 data/raw
 documents
-ai_service/outputs
-ai_service/checkpoints
-ai_service/logs
+ai_service/outputs/checkpoints
+ai_service/outputs/logs
+ai_service/requirements.txt

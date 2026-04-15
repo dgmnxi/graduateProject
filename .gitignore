@@ -2,3 +2,5 @@
 data/raw
 documents
 ai_service/outputs
+ai_service/checkpoints
+ai_service/logs

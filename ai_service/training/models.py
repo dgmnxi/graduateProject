@@ -38,9 +38,9 @@ class ResidualMLPPoseToBeta(BasePoseToBetaModel):
         super().__init__(input_size, output_size)
         
         if hidden_sizes is None:
-            hidden_sizes = [256, 128, 64]
+            hidden_sizes = [256, 256, 128, 128, 64]
         if dropout_rates is None:
-            dropout_rates = [0.2, 0.2, 0.1]
+            dropout_rates = [0.2, 0.2, 0.2, 0.1, 0.1]
         
         self.hidden_sizes = hidden_sizes
         self.dropout_rates = dropout_rates
@@ -284,7 +284,7 @@ class GCNPoseToBeta(BasePoseToBetaModel):
     
     def __init__(self, input_size: int = 99, output_size: int = 10,
                  feat_dim: int = 64, hidden_dim: int = 128,
-                 num_layers: int = 3, dropout: float = 0.1):
+                 num_layers: int = 4, dropout: float = 0.1):
         super().__init__(input_size, output_size)
         
         assert input_size == 99, "Input size must be 99 (33 joints × 3 coords)"

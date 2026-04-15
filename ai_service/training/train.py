@@ -253,7 +253,7 @@ def load_datasets(data_dir='./data/processed', batch_size=32):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, default='resmlp', choices=['resmlp', 'gcn'])
+    parser.add_argument('--model', type=str, default='residualmlp', choices=['mlp', 'residualmlp', 'transformer', 'gcn'])
     parser.add_argument('--data_dir', type=str, default='./data/processed')
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--epochs', type=int, default=100)
@@ -266,20 +266,40 @@ def main():
     print("Loading datasets...")
     train_loader, val_loader, test_loader = load_datasets(args.data_dir, args.batch_size)
     
+    # 모델 설정 (아래 중 하나를 선택하여 학습)
+    # 3레이어 버전 (기본)
+    hidden_sizes = [256, 128, 64]
+    dropout_rates = [0.2, 0.2, 0.1]
+    
+    # 7레이어 버전 (비교용 1)
+    # hidden_sizes = [256, 256, 256, 128, 128, 96, 64]
+    # dropout_rates = [0.2, 0.2, 0.2, 0.2, 0.1, 0.1, 0.1]
+    
+    # 9레이어 버전 (비교용 2)
+    # hidden_sizes = [256, 256, 256, 256, 128, 128, 96, 80, 64]
+    # dropout_rates = [0.2, 0.2, 0.2, 0.2, 0.2, 0.1, 0.1, 0.1, 0.1]
+    
+    num_layers = len(hidden_sizes)
+    
     # 모델 생성
     print(f"\nCreating {args.model.upper()} model...")
+    print(f"  Layers: {num_layers}")
+    print(f"  hidden_sizes: {hidden_sizes}")
+    print(f"  dropout_rates: {dropout_rates}")
+    
     model = create_model(
         args.model,
         input_size=99,
         output_size=10,
-        hidden_sizes=[256, 128, 64],
-        dropout_rates=[0.2, 0.2, 0.1],
+        hidden_sizes=hidden_sizes,
+        dropout_rates=dropout_rates,
         feat_dim=64,
         hidden_dim=128,
-        num_layers=3
+        num_layers=num_layers
     )
     
-    print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
+    model_params = sum(p.numel() for p in model.parameters())
+    print(f"Model parameters: {model_params:,}")
     
     # 학습
     trainer = Trainer(model)
@@ -306,11 +326,16 @@ def main():
     for i, mae_val in enumerate(metrics['per_beta_mae']):
         print(f"  Beta[{i}]: {mae_val:.6f}")
     
-    # 결과 저장
-    result_path = Path(args.save_dir) / f"{args.model}_results.json"
+    # 결과 저장 (레이어 수와 파라미터 수 포함)
+    result_filename = f"{args.model}_nlayers{num_layers}_params{model_params}_results.json"
+    result_path = Path(args.save_dir) / result_filename
     with open(result_path, 'w') as f:
         json.dump({
             'model': args.model,
+            'num_layers': num_layers,
+            'hidden_sizes': hidden_sizes,
+            'dropout_rates': dropout_rates,
+            'model_parameters': model_params,
             'metrics': metrics,
             'history': history
         }, f, indent=2)

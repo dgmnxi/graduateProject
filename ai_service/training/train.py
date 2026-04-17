@@ -36,6 +36,15 @@ class TrainingOOMError(RuntimeError):
     """CUDA OOM 발생 시 학습 루프를 안전하게 중단하기 위한 예외"""
 
 
+class TrainingNumericalError(RuntimeError):
+    """NaN/Inf 등 수치 불안정 발생 시 학습 루프를 중단하기 위한 예외"""
+
+
+def tensor_has_non_finite(tensor: torch.Tensor) -> bool:
+    """텐서에 NaN 또는 Inf가 포함되어 있는지 확인"""
+    return not torch.isfinite(tensor).all().item()
+
+
 def normalize_model_name(model_name: str) -> str:
     """사용자 입력 모델명을 내부 표준명으로 정규화"""
     model_name = model_name.lower().strip()
@@ -153,9 +162,28 @@ class Trainer:
                 inputs = inputs.to(self.device)
                 targets = targets.to(self.device)
 
+                if tensor_has_non_finite(inputs) or tensor_has_non_finite(targets):
+                    raise TrainingNumericalError(
+                        f'Non-finite input/target detected at train batch {batch_idx}. '
+                        'Check dataset values before training.'
+                    )
+
                 optimizer.zero_grad()
                 outputs = self.model(inputs)
+
+                if tensor_has_non_finite(outputs):
+                    raise TrainingNumericalError(
+                        f'Non-finite model output detected at train batch {batch_idx}. '
+                        'Transformer settings may be unstable.'
+                    )
+
                 loss = self.criterion(outputs, targets)
+
+                if not torch.isfinite(loss).item():
+                    raise TrainingNumericalError(
+                        f'Non-finite loss detected at train batch {batch_idx}. '
+                        'Training has diverged.'
+                    )
 
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
@@ -181,6 +209,10 @@ class Trainer:
                         f'CUDA OOM in train_epoch at batch {batch_idx}. Try smaller --batch_size or lighter model settings.'
                     ) from error
                 raise
+            except TrainingNumericalError:
+                optimizer.zero_grad(set_to_none=True)
+                cleanup_cuda_memory()
+                raise
 
         avg_loss = total_loss / len(train_loader)
         avg_mae = total_mae / len(train_loader)
@@ -205,9 +237,25 @@ class Trainer:
                     inputs = inputs.to(self.device)
                     targets = targets.to(self.device)
 
+                    if tensor_has_non_finite(inputs) or tensor_has_non_finite(targets):
+                        raise TrainingNumericalError(
+                            f'Non-finite input/target detected at validation batch {batch_idx}.'
+                        )
+
                     outputs = self.model(inputs)
+
+                    if tensor_has_non_finite(outputs):
+                        raise TrainingNumericalError(
+                            f'Non-finite model output detected at validation batch {batch_idx}.'
+                        )
+
                     loss = self.criterion(outputs, targets)
                     mae = torch.mean(torch.abs(outputs - targets))
+
+                    if not torch.isfinite(loss).item() or not torch.isfinite(mae).item():
+                        raise TrainingNumericalError(
+                            f'Non-finite validation metric detected at batch {batch_idx}.'
+                        )
 
                     total_loss += loss.item()
                     total_mae += mae.item()
@@ -228,6 +276,9 @@ class Trainer:
                             f'CUDA OOM in validate at batch {batch_idx}. Try smaller --batch_size.'
                         ) from error
                     raise
+                except TrainingNumericalError:
+                    cleanup_cuda_memory()
+                    raise
 
         avg_loss = total_loss / len(val_loader)
         avg_mae = total_mae / len(val_loader)
@@ -237,13 +288,24 @@ class Trainer:
 
         return avg_loss, avg_mae, predictions, targets
 
-    def train(self, train_loader, val_loader, epochs=100, lr=0.001, weight_decay=0.0001, save_dir='./checkpoints'):
+    def train(
+        self,
+        train_loader,
+        val_loader,
+        epochs=100,
+        lr=0.001,
+        weight_decay=0.0001,
+        save_dir='./checkpoints',
+        early_stopping_min_epochs=50,
+        early_stopping_patience=10,
+    ):
         """전체 학습 루프"""
 
         Path(save_dir).mkdir(parents=True, exist_ok=True)
 
         optimizer = optim.Adam(self.model.parameters(), lr=lr, weight_decay=weight_decay)
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+        epochs_without_improvement = 0
 
         for epoch in range(1, epochs + 1):
             try:
@@ -262,6 +324,7 @@ class Trainer:
 
                 if val_loss < self.best_val_loss:
                     self.best_val_loss = val_loss
+                    epochs_without_improvement = 0
                     checkpoint_path = Path(save_dir) / f'{self.model.__class__.__name__}_best.pth'
                     torch.save({
                         'epoch': epoch,
@@ -270,6 +333,16 @@ class Trainer:
                         'val_loss': val_loss,
                     }, checkpoint_path)
                     self.logger.info(f'Best model saved to {checkpoint_path}')
+                else:
+                    epochs_without_improvement += 1
+
+                if epoch >= early_stopping_min_epochs and epochs_without_improvement >= early_stopping_patience:
+                    self.logger.info(
+                        f'Early stopping triggered at epoch {epoch}. '
+                        f'No validation loss improvement for {epochs_without_improvement} epochs '
+                        f'after reaching min_epochs={early_stopping_min_epochs}.'
+                    )
+                    break
             except TrainingOOMError as oom_error:
                 checkpoint_path = Path(save_dir) / f'{self.model.__class__.__name__}_oom_epoch{epoch}.pth'
                 torch.save({
@@ -298,7 +371,18 @@ class Trainer:
                     inputs = inputs.to(self.device)
                     targets = targets.to(self.device)
 
+                    if tensor_has_non_finite(inputs) or tensor_has_non_finite(targets):
+                        raise TrainingNumericalError(
+                            f'Non-finite input/target detected at test batch {batch_idx}.'
+                        )
+
                     outputs = self.model(inputs)
+
+                    if tensor_has_non_finite(outputs):
+                        raise TrainingNumericalError(
+                            f'Non-finite model output detected at test batch {batch_idx}.'
+                        )
+
                     all_predictions.append(outputs.cpu().numpy())
                     all_targets.append(targets.cpu().numpy())
                 except RuntimeError as error:
@@ -307,6 +391,9 @@ class Trainer:
                         raise TrainingOOMError(
                             f'CUDA OOM in evaluate at batch {batch_idx}. Try smaller --batch_size.'
                         ) from error
+                    raise
+                except TrainingNumericalError:
+                    cleanup_cuda_memory()
                     raise
 
         predictions = np.concatenate(all_predictions, axis=0)
@@ -394,6 +481,20 @@ def train_and_evaluate_single_model(model_name: str, args, train_loader, val_loa
     
     normalized_model = normalize_model_name(model_name)
 
+    model_kwargs = {}
+    effective_lr = args.lr
+    effective_num_layers = num_layers
+
+    if normalized_model == 'transformer':
+        model_kwargs = {
+            'embed_dim': 64,
+            'num_heads': 4,
+            'feedforward_dim': 128,
+            'dropout': 0.2,
+        }
+        effective_num_layers = 2
+        effective_lr = min(args.lr, 1e-4)
+
     paths = resolve_run_paths(
         outputs_root=Path(args.outputs_root),
         model_name=normalized_model,
@@ -414,7 +515,8 @@ def train_and_evaluate_single_model(model_name: str, args, train_loader, val_loa
         dropout_rates=dropout_rates,
         feat_dim=64,
         hidden_dim=128,
-        num_layers=num_layers
+        num_layers=effective_num_layers,
+        **model_kwargs,
     )
 
     logger.info(f'Model parameters: {sum(p.numel() for p in model.parameters()):,}')
@@ -430,9 +532,11 @@ def train_and_evaluate_single_model(model_name: str, args, train_loader, val_loa
         history = trainer.train(
             train_loader, val_loader,
             epochs=args.epochs,
-            lr=args.lr,
+            lr=effective_lr,
             weight_decay=args.weight_decay,
-            save_dir=str(model_save_dir)
+            save_dir=str(model_save_dir),
+            early_stopping_min_epochs=50,
+            early_stopping_patience=10,
         )
 
         logger.info(f'Evaluating {normalized_model.upper()} model...')
@@ -461,6 +565,12 @@ def train_and_evaluate_single_model(model_name: str, args, train_loader, val_loa
         history = trainer.history
         logger.info(f'OOM detected: {oom_error}')
         logger.info('Training stopped safely after CUDA memory cleanup.')
+    except TrainingNumericalError as error:
+        status = 'failed_numerical'
+        oom_error = str(error)
+        history = trainer.history
+        logger.info(f'Numerical instability detected: {oom_error}')
+        logger.info('Training stopped safely after NaN/Inf detection.')
     finally:
         cleanup_cuda_memory()
 

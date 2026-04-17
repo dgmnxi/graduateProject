@@ -1,6 +1,4 @@
-# Stage 1 모델 학습 계획서: AGORA + 3DPW
-
-본 문서는 [STAGE1_AGORA_3DPW_PLAN.md](./STAGE1_AGORA_3DPW_PLAN.md)와 동기화된 학습 계획서다.
+# Stage 1 학습 및 모델 개발 계획: AGORA + 3DPW
 
 ## 1) 목표
 
@@ -10,7 +8,7 @@
 
 ### 최종 산출물
 
-- 전신 사진 입력 -> beta(10-dim) 출력 모델 1개
+- 전신 사진 입력 → beta(10-dim) 출력 모델 1개
 - beta 차원별 MSE 분석 결과
 - 모델 3종 비교 결과
 - AGORA pretrain + 3DPW finetune 실험 결과
@@ -190,7 +188,7 @@
 
 - MSE
 - RMSE
-- R2
+- R²
 - beta 0~9 각각의 MSE
 
 ### 추가로 보면 좋은 지표

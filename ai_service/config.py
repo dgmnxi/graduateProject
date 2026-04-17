@@ -3,10 +3,28 @@
 """
 import os
 from typing import Optional
+from pathlib import Path
 
 
 class Config:
     """기본 설정"""
+
+    # 프로젝트/데이터 경로 설정
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    DATA_ROOT = Path(os.getenv("DATA_ROOT", str(PROJECT_ROOT / "data")))
+    RAW_DATA_ROOT = DATA_ROOT / "raw"
+    PROCESSED_DATA_ROOT = DATA_ROOT / "processed"
+
+    # 데이터셋 분리 경로 템플릿
+    AGORA_ROOT = RAW_DATA_ROOT / "agora"
+    AGORA_IMAGES_DIR = AGORA_ROOT / "images"
+    AGORA_ANNOTATIONS_DIR = AGORA_ROOT / "annotations"
+    AGORA_SPLITS_DIR = AGORA_ROOT / "splits"
+
+    D3PW_ROOT = RAW_DATA_ROOT / "3dpw"
+    D3PW_IMAGES_DIR = D3PW_ROOT / "images"
+    D3PW_ANNOTATIONS_DIR = D3PW_ROOT / "annotations"
+    D3PW_SPLITS_DIR = D3PW_ROOT / "splits"
     
     # FastAPI 설정
     API_TITLE = "Clothing Recommendation AI Service"
